@@ -56,6 +56,11 @@ def parse_params():
         help="If memeory profiling is enabled",
     )
     parser.add_argument(
+        "--profile_memory_path",
+        type=str,
+        help="Path to file for mem profile. Only effective if --profile_memory is set."
+    )
+    parser.add_argument(
         "--autocast_dtype",
         type=str,
         default="float32",
@@ -132,7 +137,7 @@ def _benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
     xb, yb = get_data(cfg.device, context_length, cfg.batch_size, gen)
 
     model = create_model(cfg.device, context_length, transformer_cfg, cfg.compile)
-    opt = optimizer.AdamW(model.parameters())
+    opt = optimizer.AdamW(model.parameters()) if cfg.run_opt else None
     dtype = utils.get_dtype(cfg.autocast_dtype)
 
     if cfg.device != "cuda" or dtype == torch.float32:
@@ -153,21 +158,21 @@ def _benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
                     logits = model(xb)
                 with nvtx.range("loss"):
                     loss = nn_utils.cross_entropy(logits, yb)
-                if cfg.run_opt:
+                if opt is not None:
                     opt.zero_grad()
                 with nvtx.range("back"):
                     loss.backward()
-            if cfg.run_opt:
+            if opt is not None:
                 with nvtx.range("opt_step"):
                     opt.step()
             utils.synchronize(cfg.device)
 
-    profile_memory = cfg.profile_memory and cfg.device == "cuda"
+    profile_memory_path = cfg.profile_memory_path if cfg.profile_memory and cfg.device == "cuda" else None
     fwd_avg, fwd_std = bench.benchmark(
-        fwd, cfg.warmup, cfg.steps, profile_memory
+        fwd, cfg.warmup, cfg.steps, profile_memory_path
     )
     fwd_back_avg, fwd_back_std = bench.benchmark(
-        fwd_back, cfg.warmup, cfg.steps, profile_memory
+        fwd_back, cfg.warmup, cfg.steps, profile_memory_path
     )
     return {
         "model": transformer_cfg.name,
