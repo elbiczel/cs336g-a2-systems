@@ -139,7 +139,7 @@ def _benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
     if cfg.device != "cuda" or dtype == torch.float32:
         cast_ctx = nullcontext()
     else:
-        cast_ctx = torch.autocast(device="cuda", dtype=dtype)
+        cast_ctx = torch.autocast(device_type="cuda", dtype=dtype)
 
     def fwd():
         with nvtx.range("fwd"):
