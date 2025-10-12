@@ -16,7 +16,49 @@
 |  1 | mps      |            4 | True      | M       |              256 |        0.493877 |      0.00840203 |         1.05395  |        0.0220565 |               1.54783  |              0.0203935 | ok       |
 |  2 | mps      |            4 | True      | L       |              256 |        1.09464  |      0.0196739  |         3.15047  |        0.487463  |               4.24511  |              0.487066  | ok       |
 
-## End to End Benchmarks (RTX PRO 6000)
+## End to End Benchmarks (RTX PRO 6000 WK)
+
+|    | model   |   context_length |   fwd avg (sec) |   fwd std (sec) |   back avg (sec) |   back std (sec) |   fws & back avg (sec) |   fws & back std (sec) | status   | dtype   | device   |   batch_size | compile   | profile_memory   |
+|---:|:--------|-----------------:|----------------:|----------------:|-----------------:|-----------------:|-----------------------:|-----------------------:|:---------|:--------|:---------|-------------:|:----------|:-----------------|
+|  0 | S       |              256 |       0.0101203 |     4.39494e-05 |        0.0141196 |      0.000145315 |              0.0242399 |            0.000138509 | ok       | float32 | cuda     |            4 | False     | False            |
+|  1 | M       |              256 |       0.0202569 |     9.18798e-05 |        0.0340681 |      0.00021485  |              0.0543251 |            0.000194213 | ok       | float32 | cuda     |            4 | False     | False            |
+|  2 | L       |              256 |       0.0299634 |     6.69663e-05 |        0.0640944 |      0.000134777 |              0.0940578 |            0.000116963 | ok       | float32 | cuda     |            4 | False     | False            |
+|  3 | XL      |              256 |       0.0497967 |     4.44305e-05 |        0.111272  |      7.55653e-05 |              0.161069  |            6.11232e-05 | ok       | float32 | cuda     |            4 | False     | False            |
+|  4 | 2p7     |              256 |       0.0603869 |     0.000155709 |        0.160571  |      0.000173022 |              0.220958  |            7.54412e-05 | ok       | float32 | cuda     |            4 | False     | False            |
+
+### No Warm-up
+
+|    | model   |   context_length |   fwd avg (sec) |   fwd std (sec) |   back avg (sec) |   back std (sec) |   fws & back avg (sec) |   fws & back std (sec) | status   | dtype   | device   |   batch_size | compile   | profile_memory   |
+|---:|:--------|-----------------:|----------------:|----------------:|-----------------:|-----------------:|-----------------------:|-----------------------:|:---------|:--------|:---------|-------------:|:----------|:-----------------|
+|  0 | S       |              256 |       0.0353005 |      0.0790442  |      -0.00274821 |       0.0821705  |              0.0325523 |            0.0224501   | ok       | float32 | cuda     |            4 | False     | False            |
+|  1 | M       |              256 |       0.034033  |      0.0423463  |       0.0219129  |       0.0424403  |              0.0559458 |            0.00282343  | ok       | float32 | cuda     |            4 | False     | False            |
+|  2 | L       |              256 |       0.0352378 |      0.0151886  |       0.0588802  |       0.0151966  |              0.094118  |            0.000493203 | ok       | float32 | cuda     |            4 | False     | False            |
+|  3 | XL      |              256 |       0.052992  |      0.00997852 |       0.110647   |       0.0100072  |              0.163639  |            0.000756646 | ok       | float32 | cuda     |            4 | False     | False            |
+|  4 | 2p7     |              256 |       0.062647  |      0.00871239 |       0.158404   |       0.00873731 |              0.221051  |            0.000659412 | ok       | float32 | cuda     |            4 | False     | False            |
+
+### 1 step warm up
+
+|    | model   |   context_length |   fwd avg (sec) |   fwd std (sec) |   back avg (sec) |   back std (sec) |   fws & back avg (sec) |   fws & back std (sec) | status   | dtype   | device   |   batch_size | compile   | profile_memory   |
+|---:|:--------|-----------------:|----------------:|----------------:|-----------------:|-----------------:|-----------------------:|-----------------------:|:---------|:--------|:---------|-------------:|:----------|:-----------------|
+|  0 | S       |              256 |       0.0103984 |     0.000120235 |        0.0148159 |      0.00131654  |              0.0252143 |            0.00131104  | ok       | float32 | cuda     |            4 | False     | False            |
+|  1 | M       |              256 |       0.0305459 |     0.0310978   |        0.0548498 |      0.0825875   |              0.0853957 |            0.0765089   | ok       | float32 | cuda     |            4 | False     | False            |
+|  2 | L       |              256 |       0.0305613 |     0.000196254 |        0.0641871 |      0.000258344 |              0.0947484 |            0.000168006 | ok       | float32 | cuda     |            4 | False     | False            |
+|  3 | XL      |              256 |       0.0499383 |     8.81006e-05 |        0.114248  |      0.000240845 |              0.164186  |            0.000224153 | ok       | float32 | cuda     |            4 | False     | False            |
+|  4 | 2p7     |              256 |       0.0600362 |     0.00103386  |        0.161622  |      0.00105505  |              0.221659  |            0.000210359 | ok       | float32 | cuda     |            4 | False     | False            |
+
+### Mixed Precision (bfloat16)
+
+|    | model   |   context_length |   fwd avg (sec) |   fwd std (sec) |   back avg (sec) |   back std (sec) |   fws & back avg (sec) |   fws & back std (sec) | status   | dtype    | device   |   batch_size | compile   | profile_memory   |
+|---:|:--------|-----------------:|----------------:|----------------:|-----------------:|-----------------:|-----------------------:|-----------------------:|:---------|:---------|:---------|-------------:|:----------|:-----------------|
+|  0 | S       |              256 |       0.0115468 |     0.00025475  |        0.016251  |      0.00029472  |              0.0277978 |            0.000148198 | ok       | bfloat16 | cuda     |            4 | False     | False            |
+|  1 | M       |              256 |       0.0242751 |     0.000599148 |        0.0316248 |      0.000637135 |              0.0558999 |            0.000216708 | ok       | bfloat16 | cuda     |            4 | False     | False            |
+|  2 | L       |              256 |       0.0333411 |     6.47849e-05 |        0.0668117 |      9.27532e-05 |              0.100153  |            6.63783e-05 | ok       | bfloat16 | cuda     |            4 | False     | False            |
+|  3 | XL      |              256 |       0.0547619 |     6.14746e-05 |        0.112735  |      0.000142991 |              0.167497  |            0.000129102 | ok       | bfloat16 | cuda     |            4 | False     | False            |
+|  4 | 2p7     |              256 |       0.0485177 |     4.27052e-05 |        0.115897  |      7.1541e-05  |              0.164415  |            5.73967e-05 | ok       | bfloat16 | cuda     |            4 | False     | False            |
+
+### Compiled
+
+### Mixed precision (bfloat16) & compiled
 
 ## Profiling
 
@@ -30,3 +72,9 @@ float32 adding float16: tensor(10.0021)
 float32 adding float16 manually upcast: tensor(10.0021)
 
 This is due to the precision of float16 that cannot represent 0.01 correctly, even when upcast before addition.
+
+## Self Attention
+
+### Benchmark
+
+### Compiled Benchmark
