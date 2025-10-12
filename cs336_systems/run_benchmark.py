@@ -6,6 +6,7 @@ import itertools
 import traceback
 
 from typing import Any
+from contextlib import nullcontext
 
 import pandas as pd
 
@@ -31,6 +32,13 @@ def parse_params():
         nargs="+",
         help="Context lengths to benchmark.",
     )
+    parser.add_argument(
+        "--models",
+        type=str,
+        default=[],
+        nargs="+",
+        help="Model names to profile. If empty profiles all.",
+    )
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size.")
     parser.add_argument(
         "--compile",
@@ -47,7 +55,18 @@ def parse_params():
     parser.add_argument(
         "--run_opt",
         action="store_true",
-        help="If should include optimizer step.",
+        help="If profiling should include optimizer step.",
+    )
+    parser.add_argument(
+        "--profile_memory",
+        action="store_true",
+        help="If memeory profiling is enabled",
+    )
+    parser.add_argument(
+        "--autocast_dtype",
+        type=str,
+        default="float32",
+        help="dtype to use for autocasting the model. If float32 nothing is done.",
     )
 
     parser.add_argument(
@@ -110,7 +129,6 @@ def create_model(
     elif device == "mps":
         model = torch.compile(model, backend="aot_eager")
     else:
-        torch.set_float32_matmul_precision("high")
         model = torch.compile(model, mode="max-autotune")
     model = model.train()
     return model
@@ -122,35 +140,43 @@ def _benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
 
     model = create_model(cfg.device, context_length, transformer_cfg)
     opt = optimizer.AdamW(model.parameters())
+    dtype = utils.get_dtype(cfg.autocast_dtype)
+
+    if cfg.device != "cuda" or dtype == torch.float32:
+        cast_ctx = nullcontext()
+    else:
+        cast_ctx = torch.autocast(device="cuda", dtype=dtype)
 
     def fwd():
         with nvtx.range("fwd"):
-            _ = model(xb)
-            utils.synchronize(cfg.device)
+            with cast_ctx:
+                _ = model(xb)
+                utils.synchronize(cfg.device)
 
     def fwd_back():
         with nvtx.range("fwd_back"):
-            with nvtx.range("fwd"):
-                logits = model(xb)
-            with nvtx.range("loss"):
-                loss = nn_utils.cross_entropy(logits, yb)
-            if cfg.run_opt:
-                opt.zero_grad()
-            with nvtx.range("back"):
-                loss.backward()
+            with cast_ctx:
+                with nvtx.range("fwd"):
+                    logits = model(xb)
+                with nvtx.range("loss"):
+                    loss = nn_utils.cross_entropy(logits, yb)
+                if cfg.run_opt:
+                    opt.zero_grad()
+                with nvtx.range("back"):
+                    loss.backward()
             if cfg.run_opt:
                 with nvtx.range("opt_step"):
                     opt.step()
             utils.synchronize(cfg.device)
 
-    fwd_avg, fwd_std = bench.benchmark(fwd, cfg.warmup, cfg.steps)
+    profile_memory = cfg.profile_memory and cfg.device == "cuda"
+    fwd_avg, fwd_std = bench.benchmark(
+        fwd, cfg.warmup, cfg.steps, profile_memory
+    )
     fwd_back_avg, fwd_back_std = bench.benchmark(
-        fwd_back, cfg.warmup, cfg.steps
+        fwd_back, cfg.warmup, cfg.steps, profile_memory
     )
     return {
-        "device": cfg.device,
-        "batch_size": cfg.batch_size,
-        "compile": cfg.compile,
         "model": transformer_cfg.name,
         "context_length": context_length,
         "fwd avg (sec)": fwd_avg,
@@ -160,6 +186,11 @@ def _benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
         "fws & back avg (sec)": fwd_back_avg,
         "fws & back std (sec)": fwd_back_std,
         "status": "ok",
+        "dtype": cfg.autocast_dtype,
+        "device": cfg.device,
+        "batch_size": cfg.batch_size,
+        "compile": cfg.compile,
+        "profile_memory": profile_memory,
     }
 
 
@@ -171,9 +202,6 @@ def benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
     except Exception as e:
         traceback.print_exc()
         return {
-            "device": cfg.device,
-            "batch_size": cfg.batch_size,
-            "compile": cfg.compile,
             "model": transformer_cfg.name,
             "context_length": context_length,
             "fwd avg (sec)": np.nan,
@@ -183,6 +211,11 @@ def benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
             "fws & back avg (sec)": np.nan,
             "fws & back std (sec)": np.nan,
             "status": f"{type(e).__name__}: {e}",
+            "dtype": cfg.autocast_dtype,
+            "device": cfg.device,
+            "batch_size": cfg.batch_size,
+            "compile": cfg.compile,
+            "profile_memory": cfg.profile_memory,
         }
 
 
@@ -206,14 +239,18 @@ def main():
         model_lib.scaled_dot_product_attention = (
             model_lib.annotated_scaled_dot_product_attention
         )
+        if cfg.autocast_dtype == "float32":
+            torch.set_float32_matmul_precision("high")
 
     model_cfgs = [
         settings.small(),
         settings.med(),
         settings.large(),
-        #        settings.xl(),
-        #        settings.two_seven_b(),
+        settings.xl(),
+        settings.two_seven_b(),
     ]
+    if cfg.models:
+        model_cfgs = [m_cfg for m_cfg in model_cfgs if m_cfg.name in cfg.models]
 
     rows = [
         benchmark(cfg, *full_cfg)
