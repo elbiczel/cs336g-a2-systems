@@ -14,7 +14,7 @@ dependencies = [
     "numpy",
     "pytest>=8",
     "regex>=2024.11.6",
-    "torch~=2.6.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "torch~=2.8.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "torch~=2.2.2; sys_platform == 'darwin' and platform_machine == 'x86_64'", # Intel Macs
     "torchinfo~=1.8.0",
     "tqdm>=4.67.1",
