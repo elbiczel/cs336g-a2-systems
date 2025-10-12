@@ -118,12 +118,11 @@ def create_model(
     )
     model = model.to(device)
     if compile:
-        if device == "cpu":
-            model = torch.compile(model)
-        elif device == "mps":
+        if device == "mps":
             model = torch.compile(model, backend="aot_eager")
         else:
-            model = torch.compile(model, mode="max-autotune")
+            # Try mode="max-autotune" for CUDA.
+            model = torch.compile(model)
     model = model.train()
     return model
 
