@@ -37,23 +37,14 @@ def save_dataclass(obj: object, out_path: str) -> None:
         json.dump(obj_dict, f)
 
 
-def get_device() -> torch.device:
-    device_str = "cpu"
-    if torch.cuda.is_available():
-        device_str = "cuda"
-    elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
-        device_str = "mps"
-    return torch.device(device_str)
-
-
-def synchronize(device: torch.device) -> None:
-    if device.type == "cuda":
+def synchronize(device: str) -> None:
+    if device == "cuda":
         logging.info("Synchronizing CUDA backend...")
         torch.cuda.synchronize()
-    elif device.type == "mps":
+    elif device == "mps":
         logging.info("Synchronizing MPS backend...")
         torch.mps.synchronize()
-    elif device.type == "cpu":
+    elif device == "cpu":
         logging.info("Execution on CPU, no synchornization required.")
     else:
         raise ValueError(f"Unknown device type: {device.type}.")
