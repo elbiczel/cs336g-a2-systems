@@ -43,15 +43,8 @@ def parse_params():
     parser.add_argument(
         "--compile",
         action="store_true",
-        help="Compile model (default: True, disable with --no-compile)",
+        help="If should compile the model.",
     )
-    parser.add_argument(
-        "--no-compile",
-        dest="compile",
-        action="store_false",
-        help=argparse.SUPPRESS,
-    )
-    parser.set_defaults(compile=True)
     parser.add_argument(
         "--run_opt",
         action="store_true",
