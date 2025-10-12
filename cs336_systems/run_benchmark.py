@@ -9,15 +9,19 @@ from typing import Any
 
 import pandas as pd
 
-from cs336_basics import model as model_lib, nn_utils
+from cs336_basics import model as model_lib, nn_utils, optimizer
 from cs336_systems import bench, settings, utils
+from utils import nvtx
 
 
 def parse_params():
     parser = argparse.ArgumentParser(description="Benchmark configuration")
 
     parser.add_argument(
-        "--device", type=str, default="cuda", help="Device to use (cpu, cuda, mps)."
+        "--device",
+        type=str,
+        default="cuda",
+        help="Device to use (cpu, cuda, mps).",
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
     parser.add_argument(
@@ -40,6 +44,11 @@ def parse_params():
         help=argparse.SUPPRESS,
     )
     parser.set_defaults(compile=True)
+    parser.add_argument(
+        "--run_opt",
+        action="store_true",
+        help="If should include optimizer step.",
+    )
 
     parser.add_argument(
         "--warmup",
@@ -107,25 +116,32 @@ def create_model(
     return model
 
 
-def benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
-    print("Benchmarking: ", transformer_cfg.name, context_length)
+def _benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
     gen = torch.Generator(device=cfg.device).manual_seed(cfg.seed)
     xb, yb = get_data(cfg.device, context_length, cfg.batch_size, gen)
 
     model = create_model(cfg.device, context_length, transformer_cfg)
-    #        opt = optimizer.AdamW(model.parameters())
+    opt = optimizer.AdamW(model.parameters())
 
     def fwd():
-        _ = model(xb)
-        utils.synchronize(cfg.device)
+        with nvtx.range("fwd"):
+            _ = model(xb)
+            utils.synchronize(cfg.device)
 
     def fwd_back():
-        logits = model(xb)
-        loss = nn_utils.cross_entropy(logits, yb)
-        #            opt.zero_grad()
-        loss.backward()
-        #            opt.step()
-        utils.synchronize(cfg.device)
+        with nvtx.range("fwd_back"):
+            with nvtx.range("fwd"):
+                logits = model(xb)
+            with nvtx.range("loss"):
+                loss = nn_utils.cross_entropy(logits, yb)
+            if cfg.run_opt:
+                opt.zero_grad()
+            with nvtx.range("back"):
+                loss.backward()
+            if cfg.run_opt:
+                with nvtx.range("opt_step"):
+                    opt.step()
+            utils.synchronize(cfg.device)
 
     fwd_avg, fwd_std = bench.benchmark(fwd, cfg.warmup, cfg.steps)
     fwd_back_avg, fwd_back_std = bench.benchmark(
@@ -147,9 +163,11 @@ def benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
     }
 
 
-def benchmark_safe(cfg, transformer_cfg, context_length) -> dict[str, Any]:
+def benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
     try:
-        return benchmark(cfg, transformer_cfg, context_length)
+        print("Benchmarking: ", transformer_cfg.name, context_length)
+        with nvtx.range(f"Model({transformer_cfg.name}) ctx({context_length})"):
+            return _benchmark(cfg, transformer_cfg, context_length)
     except Exception as e:
         traceback.print_exc()
         return {
@@ -184,16 +202,21 @@ def main():
     np.random.seed(cfg.seed)
     random.seed(cfg.seed)
 
+    if device == "cuda":
+        model_lib.scaled_dot_product_attention = (
+            model_lib.annotated_scaled_dot_product_attention
+        )
+
     model_cfgs = [
         settings.small(),
         settings.med(),
         settings.large(),
-        # settings.xl(),
-        # settings.two_seven_b(),
+        #        settings.xl(),
+        #        settings.two_seven_b(),
     ]
 
     rows = [
-        benchmark_safe(cfg, *full_cfg)
+        benchmark(cfg, *full_cfg)
         for full_cfg in itertools.product(model_cfgs, cfg.context_lengths)
     ]
     df = pd.DataFrame(rows)

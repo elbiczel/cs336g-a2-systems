@@ -17,3 +17,16 @@
 |  2 | mps      |            4 | True      | L       |              256 |        1.09464  |      0.0196739  |         3.15047  |        0.487463  |               4.24511  |              0.487066  | ok       |
 
 ## End to End Benchmarks (RTX PRO 6000)
+
+## Profiling
+
+## Mixed precision
+
+### mixed_precision_accumulation
+
+float32: tensor(10.0001)
+float16: tensor(9.9531, dtype=torch.float16)
+float32 adding float16: tensor(10.0021)
+float32 adding float16 manually upcast: tensor(10.0021)
+
+This is due to the precision of float16 that cannot represent 0.01 correctly, even when upcast before addition.

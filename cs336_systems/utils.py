@@ -6,7 +6,34 @@ import json
 import logging
 import uuid
 
+from contextlib import contextmanager
+
 import torch
+
+
+def _make_nvtx():
+    try:
+        import torch
+        import torch.cuda.nvtx as real_nvtx
+
+        if torch.version.cuda is None or not torch.cuda.is_available():
+            raise RuntimeError("NVTX disabled: no CUDA build or no CUDA device")
+
+        return real_nvtx  # OK to use
+    except Exception:
+        # Dummy no-op shim with the same API surface you need
+        class _DummyNVTX:
+            @contextmanager
+            def range(self, msg: str = ""):
+                yield
+
+            def mark(self, msg: str = ""):
+                pass
+
+        return _DummyNVTX()
+
+
+nvtx = _make_nvtx()
 
 
 def get_run_name(prefix: str | None) -> str | None:
