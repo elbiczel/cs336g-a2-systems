@@ -105,7 +105,7 @@ def get_data(
 
 
 def create_model(
-    device: str, context_length: int, config: settings.TransformerConfig
+    device: str, context_length: int, config: settings.TransformerConfig, compile: bool,
 ) -> model_lib.BasicsTransformerLM:
     model = model_lib.BasicsTransformerLM(
         vocab_size=config.vocab_size,
@@ -117,12 +117,13 @@ def create_model(
         rope_theta=config.rope_theta,
     )
     model = model.to(device)
-    if device == "cpu":
-        model = torch.compile(model)
-    elif device == "mps":
-        model = torch.compile(model, backend="aot_eager")
-    else:
-        model = torch.compile(model, mode="max-autotune")
+    if compile:
+        if device == "cpu":
+            model = torch.compile(model)
+        elif device == "mps":
+            model = torch.compile(model, backend="aot_eager")
+        else:
+            model = torch.compile(model, mode="max-autotune")
     model = model.train()
     return model
 
@@ -131,7 +132,7 @@ def _benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
     gen = torch.Generator(device=cfg.device).manual_seed(cfg.seed)
     xb, yb = get_data(cfg.device, context_length, cfg.batch_size, gen)
 
-    model = create_model(cfg.device, context_length, transformer_cfg)
+    model = create_model(cfg.device, context_length, transformer_cfg, cfg.compile)
     opt = optimizer.AdamW(model.parameters())
     dtype = utils.get_dtype(cfg.autocast_dtype)
 
