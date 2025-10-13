@@ -115,8 +115,36 @@ float32 adding float16 manually upcast: tensor(10.0021)
 
 This is due to the precision of float16 that cannot represent 0.01 correctly, even when upcast before addition.
 
-## Self Attention
+## Self Attention (Apple M4)
 
 ### Benchmark
 
+`uv run cs336_systems/run_attn_benchmark.py  --device=mps --context_lengths 16 32 --d_model 256 1024`
+
+|    |   context_length |   d_model |   fwd avg (sec) |   fwd std (sec) |   back avg (sec) |   back std (sec) |   fws & back avg (sec) |   fws & back std (sec) |   model mem |   model+fwd mem |   model+fwd+back mem |   fwd mem |   back mem | status   | dtype   | device   |   batch_size | compile   | profile_memory   |
+|---:|-----------------:|----------:|----------------:|----------------:|-----------------:|-----------------:|-----------------------:|-----------------------:|------------:|----------------:|---------------------:|----------:|-----------:|:---------|:--------|:---------|-------------:|:----------|:-----------------|
+|  0 |               16 |       256 |     0.000964747 |     0.000140073 |      0.000628642 |      0.000244892 |             0.00159339 |            0.000200877 |           0 |               0 |                    0 |         0 |          0 | ok       | float32 | mps      |            8 | False     | False            |
+|  1 |               32 |       256 |     0.000999366 |     0.000207542 |      0.00126654  |      0.000234368 |             0.00226591 |            0.00010888  |           0 |               0 |                    0 |         0 |          0 | ok       | float32 | mps      |            8 | False     | False            |
+|  2 |               16 |      1024 |     0.00278449  |     0.000719188 |      0.00711855  |      0.000768673 |             0.00990304 |            0.000271344 |           0 |               0 |                    0 |         0 |          0 | ok       | float32 | mps      |            8 | False     | False            |
+|  3 |               32 |      1024 |     0.00197874  |     0.00104569  |      0.00137835  |      0.00104589  |             0.00335709 |            1.9964e-05  |           0 |               0 |                    0 |         0 |          0 | ok       | float32 | mps      |            8 | False     | False            |
+
 ### Compiled Benchmark
+
+`uv run cs336_systems/run_attn_benchmark.py  --device=mps --context_lengths 16 32 --d_model 256 1024 --compile`
+
+|    |   context_length |   d_model |   fwd avg (sec) |   fwd std (sec) |   back avg (sec) |   back std (sec) |   fws & back avg (sec) |   fws & back std (sec) |   model mem |   model+fwd mem |   model+fwd+back mem |   fwd mem |   back mem | status   | dtype   | device   |   batch_size | compile   | profile_memory   |
+|---:|-----------------:|----------:|----------------:|----------------:|-----------------:|-----------------:|-----------------------:|-----------------------:|------------:|----------------:|---------------------:|----------:|-----------:|:---------|:--------|:---------|-------------:|:----------|:-----------------|
+|  0 |               16 |       256 |     0.000878016 |     0.000211566 |       0.00113324 |      0.000303261 |             0.00201126 |            0.000217272 |           0 |               0 |                    0 |         0 |          0 | ok       | float32 | mps      |            8 | True      | False            |
+|  1 |               32 |       256 |     0.000910615 |     0.000155417 |       0.00137933 |      0.000228465 |             0.00228994 |            0.000167456 |           0 |               0 |                    0 |         0 |          0 | ok       | float32 | mps      |            8 | True      | False            |
+|  2 |               16 |      1024 |     0.00134004  |     0.000286955 |       0.00747273 |      0.000728483 |             0.00881277 |            0.000669585 |           0 |               0 |                    0 |         0 |          0 | ok       | float32 | mps      |            8 | True      | False            |
+|  3 |               32 |      1024 |     0.00255449  |     0.00138711  |       0.0110278  |      0.00154581  |             0.0135822  |            0.000682247 |           0 |               0 |                    0 |         0 |          0 | ok       | float32 | mps      |            8 | True      | False            |
+
+## Self Attention (RTX PRO 6000 WK)
+
+### Benchmark
+
+`uv run cs336_systems/run_attn_benchmark.py --context_lengths 16 32 64 128 --d_model 256 1024 4096 8192 16384`
+
+### Compiled Benchmark
+
+`uv run cs336_systems/run_attn_benchmark.py --context_lengths 16 32 64 128 --d_model 256 1024 4096 8192 16384 --compile`

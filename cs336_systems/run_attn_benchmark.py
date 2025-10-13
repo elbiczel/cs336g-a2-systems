@@ -7,11 +7,14 @@ import traceback
 
 from typing import Any
 from contextlib import nullcontext
+import torch.nn as nn
+from torch import Tensor
+from jaxtyping import Float, Int
 
 import pandas as pd
 
-from cs336_basics import model as model_lib, nn_utils, optimizer
-from cs336_systems import bench, settings, utils
+from cs336_basics import model as model_lib
+from cs336_systems import bench, utils
 from utils import nvtx
 
 
@@ -33,22 +36,17 @@ def parse_params():
         help="Context lengths to benchmark.",
     )
     parser.add_argument(
-        "--models",
-        type=str,
-        default=[],
+        "--d_model",
+        type=int,
+        default=[32],
         nargs="+",
-        help="Model names to profile. If empty profiles all.",
+        help="Head dimensions to benchmark.",
     )
-    parser.add_argument("--batch_size", type=int, default=4, help="Batch size.")
+    parser.add_argument("--batch_size", type=int, default=8, help="Batch size.")
     parser.add_argument(
         "--compile",
         action="store_true",
         help="If should compile the model.",
-    )
-    parser.add_argument(
-        "--run_opt",
-        action="store_true",
-        help="If profiling should include optimizer step.",
     )
     parser.add_argument(
         "--profile_memory",
@@ -70,13 +68,13 @@ def parse_params():
     parser.add_argument(
         "--warmup",
         type=int,
-        default=5,
+        default=10,
         help="Warmup steps to perform before measurement.",
     )
     parser.add_argument(
         "--steps",
         type=int,
-        default=10,
+        default=100,
         help="Number of steps for the measurement.",
     )
 
@@ -85,44 +83,38 @@ def parse_params():
 
 def get_data(
     device: str,
-    context_length: int,
     batch_size: int,
+    context_length: int,
+    d_model: int,
     generator: torch.Generator | None = None,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    vocab_size = 10_000
-    seq = torch.randint(
-        low=0,
-        high=vocab_size,
-        size=(batch_size, context_length),
-        dtype=torch.long,
+) -> Float[Tensor, "batch seq d_model"]:
+    return torch.rand(
+        size=(batch_size, context_length, d_model),
+        dtype=torch.float32,
         device=device,
         generator=generator,
     )
-    targets = torch.randint(
-        low=0,
-        high=vocab_size,
-        size=(batch_size, context_length),
-        dtype=torch.long,
-        device=device,
-        generator=generator,
-    )
-    return seq, targets
+
+
+class DummyPositionalEmbedding(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(
+        self, x: Float[Tensor, " ... seq d"], pos_ids: Int[Tensor, " ... seq"]
+    ) -> Float[Tensor, " ... seq d"]:
+        return x
 
 
 def create_model(
     device: str,
-    context_length: int,
-    config: settings.TransformerConfig,
+    d_model: int,
     compile: bool,
-) -> model_lib.BasicsTransformerLM:
-    model = model_lib.BasicsTransformerLM(
-        vocab_size=config.vocab_size,
-        context_length=context_length,
-        d_model=config.d_model,
-        num_layers=config.num_layers,
-        num_heads=config.num_heads,
-        d_ff=config.d_ff,
-        rope_theta=config.rope_theta,
+) -> nn.Module:
+    model = model_lib.CausalMultiHeadSelfAttention(
+        d_model=d_model,
+        num_heads=1,
+        positional_encoder=DummyPositionalEmbedding(),
     )
     model = model.to(device)
     if compile:
@@ -135,21 +127,29 @@ def create_model(
     return model
 
 
-def _benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
+def _benchmark(cfg, d_model, context_length) -> dict[str, Any]:
     gen = torch.Generator(device=cfg.device).manual_seed(cfg.seed)
-    xb, yb = get_data(cfg.device, context_length, cfg.batch_size, gen)
+    xb = get_data(cfg.device, cfg.batch_size, context_length, d_model, gen)
 
-    model = create_model(
-        cfg.device, context_length, transformer_cfg, cfg.compile
-    )
-    opt = optimizer.AdamW(model.parameters()) if cfg.run_opt else None
+    model = create_model(cfg.device, d_model, cfg.compile)
     dtype = utils.get_dtype(cfg.autocast_dtype)
-
     if cfg.device != "cuda" or dtype == torch.float32:
         cast_ctx = nullcontext()
     else:
         cast_ctx = torch.autocast(device_type="cuda", dtype=dtype)
 
+    # Get memory usage.
+    with nvtx.range("mem use"):
+        utils.synchronize(cfg.device)
+        allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
+        loss = model(xb).sum()
+        fwd_allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
+        loss.backward()
+        utils.synchronize(cfg.device)
+        back_allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
+        utils.synchronize(cfg.device)
+
+    # Benchmark
     def fwd():
         with nvtx.range("fwd"):
             with cast_ctx:
@@ -160,16 +160,11 @@ def _benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
         with nvtx.range("fwd_back"):
             with cast_ctx:
                 with nvtx.range("fwd"):
-                    logits = model(xb)
+                    yb = model(xb)
                 with nvtx.range("loss"):
-                    loss = nn_utils.cross_entropy(logits, yb)
-                if opt is not None:
-                    opt.zero_grad()
+                    loss = yb.sum()
                 with nvtx.range("back"):
                     loss.backward()
-            if opt is not None:
-                with nvtx.range("opt_step"):
-                    opt.step()
             utils.synchronize(cfg.device)
 
     profile_memory_path = (
@@ -184,14 +179,19 @@ def _benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
         fwd_back, cfg.warmup, cfg.steps, profile_memory_path
     )
     return {
-        "model": transformer_cfg.name,
         "context_length": context_length,
+        "d_model": d_model,
         "fwd avg (sec)": fwd_avg,
         "fwd std (sec)": fwd_std,
         "back avg (sec)": fwd_back_avg - fwd_avg,
         "back std (sec)": np.sqrt(fwd_back_std**2 + fwd_std**2),
         "fws & back avg (sec)": fwd_back_avg,
         "fws & back std (sec)": fwd_back_std,
+        "model mem": allocated,
+        "model+fwd mem": fwd_allocated,
+        "model+fwd+back mem": back_allocated,
+        "fwd mem": fwd_allocated - allocated,
+        "back mem": back_allocated - fwd_allocated,
         "status": "ok",
         "dtype": cfg.autocast_dtype,
         "device": cfg.device,
@@ -201,16 +201,16 @@ def _benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
     }
 
 
-def benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
+def benchmark(cfg, d_model, context_length) -> dict[str, Any]:
     try:
-        print("Benchmarking: ", transformer_cfg.name, context_length)
-        with nvtx.range(f"Model({transformer_cfg.name}) ctx({context_length})"):
-            return _benchmark(cfg, transformer_cfg, context_length)
+        print("Benchmarking: ", d_model, context_length)
+        with nvtx.range(f"Attn({d_model}) ctx({context_length})"):
+            return _benchmark(cfg, d_model, context_length)
     except Exception as e:
         traceback.print_exc()
         return {
-            "model": transformer_cfg.name,
             "context_length": context_length,
+            "d_model": d_model,
             "fwd avg (sec)": np.nan,
             "fwd std (sec)": np.nan,
             "back avg (sec)": np.nan,
@@ -249,19 +249,9 @@ def main():
         if cfg.autocast_dtype == "float32":
             torch.set_float32_matmul_precision("high")
 
-    model_cfgs = [
-        settings.small(),
-        settings.med(),
-        settings.large(),
-        settings.xl(),
-        settings.two_seven_b(),
-    ]
-    if cfg.models:
-        model_cfgs = [m_cfg for m_cfg in model_cfgs if m_cfg.name in cfg.models]
-
     rows = [
         benchmark(cfg, *full_cfg)
-        for full_cfg in itertools.product(model_cfgs, cfg.context_lengths)
+        for full_cfg in itertools.product(cfg.d_model, cfg.context_lengths)
     ]
     df = pd.DataFrame(rows)
     print(df.to_markdown())
