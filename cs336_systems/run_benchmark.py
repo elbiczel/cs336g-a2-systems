@@ -152,24 +152,25 @@ def _benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
 
     # Get memory usage.
     with nvtx.range("mem use"):
-        utils.synchronize(cfg.device)
-        allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
-        loss = model(xb).sum()
-        utils.synchronize(cfg.device)
-        fwd_allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
-        if opt is not None:
-            opt.zero_grad()
-        loss.backward()
-        utils.synchronize(cfg.device)
-        back_allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
-        if opt is not None:
-            opt.step()
+        with cast_ctx:
             utils.synchronize(cfg.device)
-            opt_allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
+            allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
+            loss = model(xb).sum()
             utils.synchronize(cfg.device)
-        else:
-            opt_allocated = np.nan
+            fwd_allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
+            if opt is not None:
+                opt.zero_grad()
+            loss.backward()
             utils.synchronize(cfg.device)
+            back_allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
+            if opt is not None:
+                opt.step()
+                utils.synchronize(cfg.device)
+                opt_allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
+                utils.synchronize(cfg.device)
+            else:
+                opt_allocated = np.nan
+                utils.synchronize(cfg.device)
 
     def fwd():
         with nvtx.range("fwd"):

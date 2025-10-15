@@ -140,14 +140,16 @@ def _benchmark(cfg, d_model, context_length) -> dict[str, Any]:
 
     # Get memory usage.
     with nvtx.range("mem use"):
-        utils.synchronize(cfg.device)
-        allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
-        loss = model(xb).sum()
-        fwd_allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
-        loss.backward()
-        utils.synchronize(cfg.device)
-        back_allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
-        utils.synchronize(cfg.device)
+        with cast_ctx:
+            utils.synchronize(cfg.device)
+            allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
+            loss = model(xb).sum()
+            utils.synchronize(cfg.device)
+            fwd_allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
+            loss.backward()
+            utils.synchronize(cfg.device)
+            back_allocated = torch.cuda.memory_allocated() / 1024**2  # in MB
+            utils.synchronize(cfg.device)
 
     # Benchmark
     def fwd():
