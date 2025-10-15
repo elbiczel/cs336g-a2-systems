@@ -201,35 +201,35 @@ def _benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
     fwd_back_avg, fwd_back_std = bench.benchmark(
         fwd_back, cfg.warmup, cfg.steps, profile_memory_path
     )
-    return (
-        {
-            "model": transformer_cfg.name,
-            "context_length": context_length,
-            "fwd avg (sec)": fwd_avg,
-            "fwd std (sec)": fwd_std,
-            "back avg (sec)": fwd_back_avg - fwd_avg,
-            "back std (sec)": np.sqrt(fwd_back_std**2 + fwd_std**2),
-            "fws & back avg (sec)": fwd_back_avg,
-            "fws & back std (sec)": fwd_back_std,
-            "status": "ok",
-            "dtype": cfg.autocast_dtype,
-            "device": cfg.device,
-            "batch_size": cfg.batch_size,
-            "compile": cfg.compile,
-            "profile_memory": cfg.profile_memory,
-        }
-        + {
-            "model mem": allocated,
-            "model+fwd mem": fwd_allocated,
-            "model+fwd+back mem": back_allocated,
-            "model+fwd+back_opt mem": opt_allocated,
-            "fwd mem": fwd_allocated - allocated,
-            "back mem": back_allocated - fwd_allocated,
-            "opt mem": opt_allocated - back_allocated,
-        }
-        if cfg.profile_memory
-        else {}
-    )
+    return {
+        "model": transformer_cfg.name,
+        "context_length": context_length,
+        "fwd avg (sec)": fwd_avg,
+        "fwd std (sec)": fwd_std,
+        "back avg (sec)": fwd_back_avg - fwd_avg,
+        "back std (sec)": np.sqrt(fwd_back_std**2 + fwd_std**2),
+        "fws & back avg (sec)": fwd_back_avg,
+        "fws & back std (sec)": fwd_back_std,
+        "status": "ok",
+        "dtype": cfg.autocast_dtype,
+        "device": cfg.device,
+        "batch_size": cfg.batch_size,
+        "compile": cfg.compile,
+        "profile_memory": cfg.profile_memory,
+        **(
+            {
+                "model mem": allocated,
+                "model+fwd mem": fwd_allocated,
+                "model+fwd+back mem": back_allocated,
+                "model+fwd+back_opt mem": opt_allocated,
+                "fwd mem": fwd_allocated - allocated,
+                "back mem": back_allocated - fwd_allocated,
+                "opt mem": opt_allocated - back_allocated,
+            }
+            if cfg.profile_memory
+            else {}
+        ),
+    }
 
 
 def benchmark(cfg, transformer_cfg, context_length) -> dict[str, Any]:
