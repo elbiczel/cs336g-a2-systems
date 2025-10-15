@@ -2,6 +2,7 @@
 
 git config --global user.email "tomasz@biczel.com"
 git config --global user.name "Tomasz Biczel"
+git config --global core.editor "vim"
 
 # On lambda.ai use sudo apt, not sudo apt-get
 sudo apt-get update
