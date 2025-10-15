@@ -3,8 +3,13 @@
 git config --global user.email "tomasz@biczel.com"
 git config --global user.name "Tomasz Biczel"
 
+# On lambda.ai use sudo apt, not sudo apt-get
 sudo apt-get update
 sudo apt-get install nsight-systems
+
+# Enable performance events
+sudo sysctl -w kernel.perf_event_paranoid=0
+sudo sysctl -w kernel.kptr_restrict=0
 
 [[ ! -e data ]] && ln -s /workspace/data/a2/ data
 
