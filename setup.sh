@@ -11,5 +11,6 @@ sudo apt-get install nsight-systems
 # To manually run QdstrmImporter on profiles.
 export PATH=/usr/lib/nsight-systems/host-linux-x64:$PATH
 
+command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
 # To install dependencies
 uv run python
