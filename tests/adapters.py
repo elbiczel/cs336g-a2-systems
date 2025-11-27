@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Type
 from cs336_systems import flash_attention
-#from cs336_systems import trit_flash_attention
+from cs336_systems import trit_flash_attention
 
 import torch
 
@@ -32,7 +32,6 @@ def get_flashattention_autograd_function_triton() -> Type:
     Returns:
         A class object (not an instance of the class)
     """
-    return flash_attention.TorchFlashAttentionFunc
     return trit_flash_attention.FlashAttentionFunc
 
 
