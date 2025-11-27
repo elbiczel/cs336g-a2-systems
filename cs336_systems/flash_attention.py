@@ -15,7 +15,7 @@ def torch_flash_attn(
     is_causal: bool,
     Q_TILE_SIZE,
     K_TILE_SIZE,
-) -> Float[Tensor, "... n_q d_v"]:
+) -> tuple[Float[Tensor, "... n_q d_v"], Float[Tensor, "... n_q"]]:
     d_k, d_v, l_dims = Q.shape[-1], V.shape[-1], Q.shape[:-1]
     out_dims = l_dims + (d_v,)
     O = torch.empty(out_dims, device=Q.device, dtype=Q.dtype)
@@ -60,15 +60,50 @@ def torch_flash_attn(
     return O, L
 
 
+def torch_flash_attn_backward(
+    Q: Float[Tensor, "... n_q d_k"],
+    K: Float[Tensor, "... n_k d_k"],
+    V: Float[Tensor, "... n_k d_v"],
+    L: Float[Tensor, "... n_q"],
+    dO: Float[Tensor, "... n_q d_v"],
+    is_causal: bool = False,
+) -> tuple[
+    Float[Tensor, "... n_q d_k"],
+    Float[Tensor, "... n_k d_k"],
+    Float[Tensor, "... n_k d_v"],
+    None,
+]:
+    d_k = Q.shape[-1]
+    scale = 1 / math.sqrt(d_k)
+    S = einsum(Q, K, "... n_q d_k, ... n_k d_k -> ... n_q n_k") * scale
+    if is_causal:
+        n_q, n_k = Q.shape[-2], K.shape[-2]
+        causal_mask = torch.arange(n_k, device=K.device) > torch.arange(
+            n_q, device=Q.device
+        ).unsqueeze(-1)
+        S = S.masked_fill(causal_mask, -float("inf"))
+    P = torch.exp(S - L.unsqueeze(-1))
+    dV = einsum(P, dO, "... n_q n_k, ... n_q d_v -> ... n_k d_v")
+    dP = einsum(dO, V, "... n_q d_v, ... n_k d_v -> ... n_q n_k")
+    D = (P * dP).sum(dim=-1)
+    dS = P * (dP - D.unsqueeze(-1))
+    dQ = einsum(dS, K, "... n_q n_k, ... n_k d_k -> ... n_q d_k") * scale
+    dK = einsum(dS, Q, "... n_q n_k, ... n_q d_k -> ... n_k d_k") * scale
+    return dQ, dK, dV, None
+
+
+_compiled_flash_attn_bwd = torch.compile(torch_flash_attn_backward)
+
+
 class TorchFlashAttentionFunc(autograd.Function):
     @staticmethod
     def forward(
         ctx,
-        Q: Float[Tensor, "n_q d"],
-        K: Float[Tensor, "n_k d"],
-        V: Float[Tensor, "n_k d"],
+        Q: Float[Tensor, "... n_q d_k"],
+        K: Float[Tensor, "... n_k d_k"],
+        V: Float[Tensor, "... n_k d_v"],
         is_causal: bool = False,
-    ):
+    ) -> Float[Tensor, "... n_q d_v"]:
         # TODO: Tune the tile sizes.
         ctx.Q_TILE_SIZE = 16
         ctx.K_TILE_SIZE = 16
@@ -76,10 +111,10 @@ class TorchFlashAttentionFunc(autograd.Function):
         O, L = torch_flash_attn(
             Q, K, V, is_causal, ctx.Q_TILE_SIZE, ctx.K_TILE_SIZE
         )
-        ctx.save_for_backward(Q, K, V, O, L)
+        ctx.save_for_backward(Q, K, V, L)
         return O
 
     @staticmethod
-    def backward(ctx):
-        # TODO: Implement.
-        raise NotImplementedError("TODO: Implement FlashAttentionFunc.backward")
+    def backward(ctx, dO: Float[Tensor, "... n_q d_v"]):
+        Q, K, V, L = ctx.saved_tensors
+        return _compiled_flash_attn_bwd(Q, K, V, L, dO, ctx.is_causal)

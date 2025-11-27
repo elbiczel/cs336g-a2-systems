@@ -210,7 +210,7 @@ class FlashAttentionFunc(autograd.Function):
             D=D,
             is_causal=is_causal,
         )
-        ctx.save_for_backward(Q, K, V, O, L)
+        ctx.save_for_backward(Q, K, V, L)
         ctx.B = B
         ctx.l_dims = tuple(l_dims)
         ctx.n_q = n_q
@@ -220,5 +220,5 @@ class FlashAttentionFunc(autograd.Function):
         return O
 
     @staticmethod
-    def backward(ctx):
-        return flash_attention.TorchFlashAttentionFunc.backward(ctx)
+    def backward(ctx, dO):
+        return flash_attention.TorchFlashAttentionFunc.backward(ctx, dO)
